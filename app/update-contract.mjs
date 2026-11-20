@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 
 export const UPDATE_OWNER='awoadak-glitch';
+export const UPDATE_REPOSITORY=UPDATE_OWNER+'/palma-windos';
 export const UPDATE_RUNTIME='palma-win-x64-v1';
 export const BOOTSTRAP_VERSION=1;
 export const MAX_ARCHIVE=32*1024*1024;

@@ -2,7 +2,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {gunzipSync} from 'node:zlib';
 import {APP_ORIGIN} from './bridge.mjs';
-import {repositoryName,manifestURL,validateManifest,compareVersions,sha256,inspectArchive,MAX_ARCHIVE} from './update-contract.mjs';
+import {repositoryName,manifestURL,validateManifest,compareVersions,sha256,inspectArchive,MAX_ARCHIVE,UPDATE_REPOSITORY} from './update-contract.mjs';
 
 const assetHosts=new Set(['release-assets.githubusercontent.com','objects.githubusercontent.com','github-releases.githubusercontent.com']);
 export function allowedUpdateURL(raw,repo){
@@ -38,22 +38,14 @@ async function collect(response,limit,onProgress=()=>{},signal){
   return Buffer.concat(parts);
 }
 
-export function createUpdateManager({fs,store,version,defaultRepository='',fetchImpl=fetch,restart=()=>{},canRestart=()=>true,onReady=()=>{},startupMessage=''}){
-  const configPath=path.join(store.root,'repository.json');
-  let repo='';
-  try{if(fs.statSync(configPath).size<2048)repo=repositoryName(JSON.parse(fs.readFileSync(configPath,'utf8')).repository);}catch{}
-  if(!repo&&defaultRepository)try{repo=repositoryName(defaultRepository);}catch{}
+export function createUpdateManager({fs,store,version,defaultRepository=UPDATE_REPOSITORY,fetchImpl=fetch,restart=()=>{},canRestart=()=>true,onReady=()=>{},startupMessage=''}){
+  // The release supplies the update source. Old user-entered settings must not
+  // override it now that the app no longer exposes repository configuration.
+  const repo=repositoryName(defaultRepository||UPDATE_REPOSITORY);
   let phase='idle',error='',available=null,bytes=0,total=0,job=null,controller=null,restarting=false;
-  const status=()=>({version,repository:repo,configured:Boolean(repo),phase,error,available:available?{version:available.version,notes:available.notes,size:available.size}:null,bytes,total,pending:store.read().pending?.version||null,startupMessage});
-  function configure(value){
-    if(job||store.read().pending)throw Error('أكمل التحديث الجاري قبل تغيير المستودع.');
-    const name=repositoryName(value),tmp=configPath+'.'+randomUUID()+'.tmp';
-    try{fs.writeFileSync(tmp,JSON.stringify({repository:name}),{flag:'wx',mode:0o600});fs.renameSync(tmp,configPath);}finally{try{fs.unlinkSync(tmp);}catch{}}
-    repo=name;available=null;error='';phase='idle';return status();
-  }
+  const status=()=>({version,configured:true,phase,error,available:available?{version:available.version,notes:available.notes,size:available.size}:null,bytes,total,pending:store.read().pending?.version||null,startupMessage});
   async function check(){
     if(job)return status();
-    if(!repo)throw Error('أدخل مستودع تحديثات بالما أولًا.');
     if(store.read().pending)return status();
     phase='checking';error='';available=null;controller=new AbortController();
     const signal=controller.signal;
@@ -104,7 +96,6 @@ export function createUpdateManager({fs,store,version,defaultRepository='',fetch
     try{
       const text=await request.text();if(text.length>2048)throw Error('طلب تحديث غير صالح.');const body=JSON.parse(text);
       if(body.action==='ready'){onReady();return reply({ok:true});}
-      if(body.action==='configure')return reply(configure(body.repository));
       if(body.action==='check')return reply(await check());
       if(body.action==='download')return reply(download());
       if(body.action==='cancel'){controller?.abort();return reply(status());}
@@ -117,5 +108,5 @@ export function createUpdateManager({fs,store,version,defaultRepository='',fetch
       throw Error('إجراء تحديث غير صالح.');
     }catch(e){return reply({error:e.message},400);}
   }
-  return {status,configure,check,download,handle,settled:async()=>{await job;},shutdown:async()=>{controller?.abort();await job;}};
+  return {status,check,download,handle,settled:async()=>{await job;},shutdown:async()=>{controller?.abort();await job;}};
 }

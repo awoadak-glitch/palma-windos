@@ -6,7 +6,7 @@ import path from 'node:path';
 import {gzipSync} from 'node:zlib';
 import {createUpdateStore} from '../app/update-store.mjs';
 import {createUpdateManager,fetchUpdate,allowedUpdateURL} from '../app/update-manager.mjs';
-import {sha256,inspectArchive,validateManifest,repositoryName,compareVersions,UPDATE_RUNTIME} from '../app/update-contract.mjs';
+import {sha256,inspectArchive,validateManifest,repositoryName,compareVersions,UPDATE_RUNTIME,UPDATE_REPOSITORY,manifestURL} from '../app/update-contract.mjs';
 
 const repo='awoadak-glitch/PALMA';
 function archive(version='2.4.1',overrides={}){
@@ -16,9 +16,9 @@ function archive(version='2.4.1',overrides={}){
   const json=Buffer.from(JSON.stringify({files})),padding=(4-json.length%4)%4,head=Buffer.alloc(16);head.writeUInt32LE(4);head.writeUInt32LE(8+json.length+padding,4);head.writeUInt32LE(4+json.length+padding,8);head.writeUInt32LE(json.length,12);
   return Buffer.concat([head,json,Buffer.alloc(padding),...chunks]);
 }
-function fixture(version='2.4.1'){
+function fixture(version='2.4.1',repository=repo){
   const raw=archive(version),compressed=gzipSync(raw);
-  const manifest={schema:1,app:'com.palma.vision.desktop',version,runtime:UPDATE_RUNTIME,minBootstrap:1,url:`https://github.com/${repo}/releases/download/v${version}/PALMA-VISION-${version}.asar.gz`,size:compressed.length,sha256:sha256(compressed),unpackedSize:raw.length,unpackedSha256:sha256(raw),notes:'إصلاحات التشغيل'};
+  const manifest={schema:1,app:'com.palma.vision.desktop',version,runtime:UPDATE_RUNTIME,minBootstrap:1,url:`https://github.com/${repository}/releases/download/v${version}/PALMA-VISION-${version}.asar.gz`,size:compressed.length,sha256:sha256(compressed),unpackedSize:raw.length,unpackedSha256:sha256(raw),notes:'إصلاحات التشغيل'};
   return {raw,compressed,manifest,record:{version,sha256:manifest.unpackedSha256,size:raw.length}};
 }
 function setup(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'palma-updates-test-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const store=createUpdateStore({fs,root,bundledVersion:'2.4.0'});return {root,store};}
@@ -94,9 +94,22 @@ test('Restart is blocked while video downloads are active',async t=>{
   const m=createUpdateManager({fs,store,version:'2.4.0',canRestart:()=>false,restart:()=>calls++});
   assert.equal((await m.handle(request({action:'restart'}))).status,400);assert.equal(calls,0);
 });
-test('Configuration persists and never requires a GitHub token',t=>{
-  const {store}=setup(t),m=createUpdateManager({fs,store,version:'2.4.0'});m.configure(repo);
-  const reopened=createUpdateManager({fs,store,version:'2.4.0'});assert.equal(reopened.status().repository,repo);
+test('Fresh installation checks the built-in source without manual setup',async t=>{
+  const {store,root}=setup(t),seen=[];
+  const m=createUpdateManager({fs,store,version:'2.4.0',fetchImpl:async url=>{seen.push(url);return Response.json(fixture('2.4.1',UPDATE_REPOSITORY).manifest);}});
+  assert.equal(m.status().configured,true);
+  const response=await m.handle(request({action:'check'}));assert.equal(response.status,200);
+  const status=await response.json();assert.equal(status.phase,'available');assert.equal(status.available.version,'2.4.1');
+  assert.deepEqual(seen,[manifestURL(UPDATE_REPOSITORY)]);assert.equal('repository' in status,false);
+  assert.equal(fs.existsSync(path.join(root,'repository.json')),false);
+});
+test('Upgrade ignores a legacy repository override and refuses reconfiguration',async t=>{
+  const {store,root}=setup(t),seen=[],legacy=JSON.stringify({repository:'awoadak-glitch/old-updates'});
+  fs.writeFileSync(path.join(root,'repository.json'),legacy);
+  const m=createUpdateManager({fs,store,version:'2.4.0',fetchImpl:async url=>{seen.push(url);return Response.json(fixture('2.4.1',UPDATE_REPOSITORY).manifest);}});
+  assert.equal((await m.handle(request({action:'configure',repository:'awoadak-glitch/other-updates'}))).status,400);
+  assert.equal((await m.check()).phase,'available');assert.deepEqual(seen,[manifestURL(UPDATE_REPOSITORY)]);
+  assert.equal(fs.readFileSync(path.join(root,'repository.json'),'utf8'),legacy);
 });
 test('Cancelling an interrupted download never stages or activates partial bytes',async t=>{
   const {store}=setup(t),f=fixture();

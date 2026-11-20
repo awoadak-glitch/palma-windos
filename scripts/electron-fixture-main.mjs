@@ -23,9 +23,14 @@ app.whenReady().then(async()=>{
     if(!ready.ok)throw Error('Renderer health request rejected: '+ready.status);
     const status=await fetch('/api/desktop/updates');
     if(!status.ok)throw Error('Renderer status request rejected: '+status.status);
-    return {version:(await status.json()).version,hasUpdateButton:Boolean(document.getElementById('update-check'))};
+    const data=await status.json();
+    const deadline=Date.now()+5000;
+    while(!document.getElementById('update-version').textContent.includes(data.version)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,50));
+    return {version:data.version,hasUpdateButton:Boolean(document.getElementById('update-check')),
+      readyWithoutSetup:data.configured&&!document.getElementById('update-check').disabled&&document.getElementById('update-version').textContent.includes(data.version),
+      hasRepositoryControls:Boolean(document.querySelector('#update-repository,#update-config'))};
   })()`);
-  assert.deepEqual(result,{version:runtime.version,hasUpdateButton:true});
+  assert.deepEqual(result,{version:runtime.version,hasUpdateButton:true,readyWithoutSetup:true,hasRepositoryControls:false});
   fs.writeFileSync(process.env.PALMA_TEST_RESULT,JSON.stringify({version:runtime.version,asar:import.meta.url.includes('.asar/')}));
   app.exit(0);
 }).catch(error=>{console.error(error);app.exit(1);});
