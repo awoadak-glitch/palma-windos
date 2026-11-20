@@ -36,7 +36,9 @@ jobs:
       - name: Check application and updater
         run: node --test tests/*.test.mjs
       - name: Install matching Electron runtime for verification
-        run: npm install --no-save --package-lock=false electron@44.7.2
+        run: |
+          npm install --no-save --package-lock=false electron@44.7.2
+          node node_modules/electron/install.js
       - name: Verify Windows startup, ASAR update and rollback
         run: node scripts/electron-smoke.mjs node_modules/electron/dist/electron.exe
       - name: Build update

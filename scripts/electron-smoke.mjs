@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import {createUpdateStore} from '../app/update-store.mjs';
 import {sha256} from '../app/update-contract.mjs';
 
-const electron=process.argv[2];if(!electron)throw Error('Pass the Electron executable path.');
+if(!process.argv[2])throw Error('Pass the Electron executable path.');
+const electron=path.resolve(process.argv[2]);
+if(!fs.existsSync(electron))throw Error('Electron executable is missing. Run node node_modules/electron/install.js first.');
 const project=fileURLToPath(new URL('../',import.meta.url));
 const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'palma-electron-smoke-'));
 const appRoot=path.join(temporary,'fixture'),userData=path.join(temporary,'userdata'),output=path.join(temporary,'result.json');
