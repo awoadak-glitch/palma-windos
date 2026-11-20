@@ -15,6 +15,7 @@ app.whenReady().then(async()=>{
     return new Response('<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><body><div id="host"></div></body></html>',{headers:{'Content-Type':'text/html; charset=utf-8'}});
   });
   const window=new BrowserWindow({show:false,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  window.webContents.setBackgroundThrottling(false);
   await window.loadURL('palma://app/');
   const result=await window.webContents.executeJavaScript(`(async()=>{
     const {renderDesktopUpdates}=await import('/desktop-updates.js');
@@ -25,7 +26,7 @@ app.whenReady().then(async()=>{
     if(!status.ok)throw Error('Renderer status request rejected: '+status.status);
     const data=await status.json();
     const deadline=Date.now()+5000;
-    while(!document.getElementById('update-version').textContent.includes(data.version)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,50));
+    while((!document.getElementById('update-version').textContent.includes(data.version)||document.getElementById('update-check').disabled)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,50));
     return {version:data.version,hasUpdateButton:Boolean(document.getElementById('update-check')),
       readyWithoutSetup:data.configured&&!document.getElementById('update-check').disabled&&document.getElementById('update-version').textContent.includes(data.version),
       hasRepositoryControls:Boolean(document.querySelector('#update-repository,#update-config'))};
