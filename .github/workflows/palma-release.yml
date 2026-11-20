@@ -1,0 +1,63 @@
+name: Publish PALMA update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'release.json'
+      - '.github/workflows/palma-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: palma-stable-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check application and updater
+        run: node --test tests/*.test.mjs
+      - name: Install matching Electron runtime for verification
+        run: npm install --no-save --package-lock=false electron@44.7.2
+      - name: Verify Windows startup, ASAR update and rollback
+        run: node scripts/electron-smoke.mjs node_modules/electron/dist/electron.exe
+      - name: Build update
+        env:
+          PALMA_REPOSITORY: ${{ github.repository }}
+          PALMA_BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          PALMA_VERSION="$(python -c 'import json,os; r=json.load(open("release.json",encoding="utf-8")); print(r["series"]+"."+os.environ["PALMA_BUILD_NUMBER"])')"
+          python scripts/build-release.py --version "$PALMA_VERSION" --repository "$PALMA_REPOSITORY"
+          echo "PALMA_VERSION=$PALMA_VERSION" >> "$GITHUB_ENV"
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PALMA_REPOSITORY: ${{ github.repository }}
+        run: |
+          gh release create "v$PALMA_VERSION" \
+            "dist/PALMA-VISION-$PALMA_VERSION.asar.gz" \
+            "dist/palma-update.json" \
+            "dist/PALMA-VISION-$PALMA_VERSION-Update-Setup.zip" \
+            --repo "$PALMA_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "PALMA VISION $PALMA_VERSION" \
+            --notes-file dist/release-notes.txt \
+            --latest

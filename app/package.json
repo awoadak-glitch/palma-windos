@@ -1,0 +1,9 @@
+{
+  "name": "palma-vision",
+  "version": "2.4.0",
+  "type": "module",
+  "main": "bootstrap.mjs",
+  "description": "PALMA VISION independent desktop client",
+  "author": "PALMA VISION",
+  "license": "UNLICENSED"
+}
